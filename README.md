@@ -18,3 +18,10 @@ If you find yourself unable to import your repository due to the presence of fil
   4. Run `git add -A`
   5. Run `git commit`
   6. Run `git push`
+
+# Purpose of this project
+This app contains the capability for sending metric data against a CI to the Metric Database through the MID Server. While it is true that with Kingston, there is an API that allows you to send instance data directly the Clotho Database; it will not invoke the Event Management anomaly detection capability unless the metric is sent through the MID server. 
+
+This app allows simple scripting to send Metric through the MID server by leveraging the MID server API for sending Metrics. 
+
+
