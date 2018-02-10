@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_snc_sn_metric_se.GenericProbe</api_name>
+        <client_callable>false</client_callable>
+        <description>Creating an ECC queue ouptut entry for MID server to execute a probe </description>
+        <name>GenericProbe</name>
+        <script><![CDATA[var GenericProbe = Class.create();
+
+GenericProbe.prototype = {
+	initialize : function() {
+		this.midServer = "";
+		this.source = "";
+		this.topic = "";		
+		this.parameters = [];
+		this.payloadDoc = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
+	},
+	setMIDServer: function (mid) {
+		this.midServer = mid;
+	},
+	
+	setTopic: function(topic) {
+		this.topic = topic;
+	},
+	
+	setName : function(name) {
+		this.name = name;
+	},
+
+	setSource : function(s) {
+		this.source = s;
+	},
+
+	addParameter : function(name, value) {
+		this.parameters.push({'name':name, 'value':value});
+	},
+
+	create : function() {
+		var egr = new GlideRecord("ecc_queue");
+		egr.agent = "mid.server." + this.midServer;
+		egr.queue = "output";
+		egr.state = "ready";
+		egr.topic = this.topic;
+		egr.name = this.name;
+		egr.source = this.source;
+		egr.payload = this._getPayload();
+		return egr.insert();
+	},
+
+	_getPayload: function() {
+		if (this.parameters.length == 0)
+			return this.payloadDoc;
+
+		this.payloadDoc += "<parameters>";  
+
+		
+		for (var i=0; i<this.parameters.length; i ++) {
+			var parameter = this.parameters[i];
+			var name = parameter['name'];
+			var value = parameter['value'];
+			var sValue = "<parameter name=\"" + name + "\" value=\"" + value + "\"/>";
+			
+			this.payloadDoc += sValue;
+		}  	
+
+		this.payloadDoc += "</parameters>";  
+
+		return this.payloadDoc;  
+	},
+
+
+	type: 'GenericProbe'
+};]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>aleck.lin</sys_created_by>
+        <sys_created_on>2018-02-10 16:58:37</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_id>b941310013dc1b40ab3bb8b12244b08a</sys_id>
+        <sys_mod_count>13</sys_mod_count>
+        <sys_name>GenericProbe</sys_name>
+        <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
+        <sys_policy>read</sys_policy>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
+        <sys_update_name>sys_script_include_b941310013dc1b40ab3bb8b12244b08a</sys_update_name>
+        <sys_updated_by>aleck.lin</sys_updated_by>
+        <sys_updated_on>2018-02-10 17:29:13</sys_updated_on>
+    </sys_script_include>
+</record_update>

@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_snc_sn_metric_se.SNMetricGenerator</api_name>
+        <client_callable>false</client_callable>
+        <description>#ITOM SN Metric Generator for Operational Metrics</description>
+        <name>SNMetricGenerator</name>
+        <script><![CDATA[/*****************************************************
+* ITOM
+* Author: Aleck Lin aleck.lin@servicenow.com
+* Description: This script is part of the Operational Metrics generator
+* designed to integrate with the MID server's REST API for collecting metrics
+* Example usage:
+	var omg = new SNMetricGenerator();
+	omg.setUsername("someUserName");
+	omg.setPassword("somePassword");
+	omg.setHostAndPort("172.31.51.190", "8080");
+	omg.setCINode("someComputerName");
+	omg.setMetricType("Metric_wmb_total_Input_messages");
+	omg.setMetricValue(7000);
+	omg.setMIDServer("AWS_MID");
+	omg.setDebug(true);
+
+	omg.sendMetricMessage();
+****************************************************/
+
+var SNMetricGenerator = Class.create();
+SNMetricGenerator.prototype = {	
+	GENERATOR_NAME: "SNMetricGenerator",
+	
+    initialize: function() {
+		this.username = null;
+		this.password = null;	
+		this.host = null;
+		this.endpoint = null;				
+		this.ciNode = null;
+		this.metricType = null;
+		this.metricValue = null;
+		this.MIDServer = null;		
+		this.timestamp = null;
+		this.ciIdObject = null;
+		
+		this.debugFlag = false;		
+    },
+
+	setUsername: function(username) {
+		this.username = username;
+	},
+	
+	setPassword: function(password) {
+		this.password = password;
+	},
+	
+	//Host is required, if port is not available, asssume 80
+	setHostAndPort: function(host, port) {
+		this.host = host;
+		var path = "/api/mid/sa/metrics";
+		if (gs.nil(port))
+			this.endpoint = "http://"+ host + path;
+		else 
+			this.endpoint = "http://"+ host+ ":"+ port + path;
+	},
+		
+	setCINode: function(node) {
+		this.ciNode = node;
+	},
+	
+	setMetricType: function (metricType) {
+		this.metricType = metricType;
+	},
+
+	setMetricValue: function (value) {
+		this.metricValue = value;
+	},
+	
+	setMIDServer: function(mid) {
+		this.MIDServer = mid;		
+	},	
+
+	//Optional: If CI identifier obj is not set, then a default format will be provided
+	setCIIdentifier: function(obj) {
+		this.ciIdObject = obj;
+	},
+	
+	sendMetricMessage: function() {
+		var restMessage = new sn_ws.RESTMessageV2();
+		restMessage.setBasicAuth(this.username, this.password);
+		restMessage.setHttpMethod("post");
+		restMessage.setEndpoint(this.endpoint);
+		restMessage.setRequestHeader("Accept","application/json");
+		restMessage.setRequestHeader('Content-Type','application/json');
+		
+		if (!gs.nil(this.MIDServer)) {
+			restMessage.setMIDServer(this.MIDServer);
+		}		
+		
+		var desc = this._getDescription();
+		
+		this._printPayloadInfo(desc);
+		var verification = this._verifyRequiredAttributes();
+		if (verification) {
+			gs.log("There is an error => " + verification);
+			gs.log("Aboring sending metric message...");
+			return false;
+		}
+		
+		restMessage.setRequestBody(desc);						
+//		var response = restMessage.execute();
+		var response = restMessage.executeAsync();
+		if (!this.debugFlag) // if debug flag is not true, don't bother reading the response object; it would only slow down the processing
+			return true;
+
+		
+		this._printResponseDebugMsg(response);
+		
+		if (response.getStatusCode() == 200)		
+			return true;
+		
+		return false;
+	},
+	
+	setDebug: function (flag) {
+		this.debugFlag = flag;
+	},
+		
+	debug: function(msg) {
+		if (this.debugFlag)
+			gs.log(msg);
+	},
+
+	/*******************************************************
+	* Internal functions
+	********************************************************/
+
+	_getDescription: function() {
+		var descObj = {};
+		descObj['metric_type'] = this._getMetricType();
+		descObj['node'] = this._getNode();
+		descObj['resource'] = this._getNode();
+		descObj['value'] = this._getMetricValue();
+		descObj['timestamp'] = this._getTimeStamp();
+		descObj['ci_identifier'] = this._getCIIdentifier();
+		descObj['source'] = this.GENERATOR_NAME;
+
+		var desc = JSON.stringify(descObj);
+		
+		return "[" + desc + "]";	
+	},
+
+	_getNode: function() {
+		return this.ciNode;
+	},
+
+	_getMetricType: function() {
+		return this.metricType;
+	},	
+	
+	_getMetricValue: function() {
+		return this.metricValue;
+	},
+	
+	_getTimeStamp: function() {
+		var myDate = new Date();
+		this.timestamp = myDate.getTime();
+		return this.timestamp;
+	},
+			
+	_getCIIdentifier: function() {		
+		if (gs.nil(this.ciIdObject))
+			this.ciIdObject = {"node":this._getNode(), "resource":this._getNode(), "host":this._getNode()};
+	
+		return this.ciIdObject;
+	},
+	
+	_printResponseDebugMsg: function(response) {
+		this.debug("\nPRINTING RESPONSE OBJECT...");
+		this.debug("Response code: " + response.getStatusCode());		
+		this.debug("Response body: " + response.getBody());
+		this.debug("Response error code: " + response.getErrorCode());
+		this.debug("Response error msg: " + response.getErrorMessage());	
+	},
+
+	_printPayloadInfo: function(desc) {
+		this.debug("\nPRINTING PAYLOAD INFORMATION...");
+		this.debug("Username is " + this.username);
+		this.debug("Password is " + (gs.nil(this.password) ? "Empty": "Non-empty"));
+		this.debug("Endpoint is " + this.endpoint);						   
+		this.debug("Node is " + this.ciNode);
+		this.debug("Metric type is " + this.metricType);
+		this.debug("Metric value is " + this.metricValue);
+		this.debug("Timestamp is " + this.timestamp);
+		this.debug("CI Identifier is " + JSON.stringify(this.ciIdObject));
+		if (this.MIDserver)
+			this.debug("MID server is set to " + this.MIDServer);	
+		
+		this.debug("Body payload is " + desc);
+	},
+	
+	_verifyRequiredAttributes: function () {
+		if (gs.nil(this.username))
+			return "Username cannot be empty!";
+		
+		if (gs.nil(this.password))
+			return "Password cannot be empty!";
+		
+		if (gs.nil(this.ciNode))
+			return "CI node cannot be empty!";		
+		
+		if (gs.nil(this.host))
+			return "Host cannot be empty!";
+
+		if (gs.nil(this.metricType))
+			return "Metric type cannot be empty!";
+
+		if (gs.nil(this.metricValue))
+			return "Metric value cannot be empty!";		
+		
+		return;
+	},
+	
+    type: 'SNMetricGenerator'
+};]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>aleck.lin</sys_created_by>
+        <sys_created_on>2018-02-10 16:10:28</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_id>1e866d08139c1b40ab3bb8b12244b0c5</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>SNMetricGenerator</sys_name>
+        <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
+        <sys_policy>read</sys_policy>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
+        <sys_update_name>sys_script_include_1e866d08139c1b40ab3bb8b12244b0c5</sys_update_name>
+        <sys_updated_by>aleck.lin</sys_updated_by>
+        <sys_updated_on>2018-02-10 16:10:38</sys_updated_on>
+    </sys_script_include>
+</record_update>

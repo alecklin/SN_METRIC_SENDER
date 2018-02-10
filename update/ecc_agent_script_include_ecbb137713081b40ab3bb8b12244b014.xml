@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update sys_domain="global" table="ecc_agent_script_include">
+    <ecc_agent_script_include action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <description>A probe that will create metric through the Java APIs on the MID server</description>
+        <name>MetricProbe</name>
+        <script><![CDATA[/* 
+*  Author: Aleck.Lin@ServiceNow.com
+*  Description: This is meant to be used as a JavaScript probe that can send Metrics directly from the MID server without 
+*				needing the REST endpoint receiver on the MID server to be set up. 	
+*/
+
+var MetricProbe = Class.create();
+	
+MetricProbe.prototype = Object.extendsObject(AProbe, {
+
+    initialize : function(probe) {
+		this.metric_source = "SN Metric Sender";
+        this.probe = probe;
+        this.output = "";
+        this.createOutputRecord = true;
+    },
+    
+    /**
+     * Runs the probe instance
+     */
+    run : function() {
+        
+        // If something fails in the probe code and an unhandled exception is thrown, make sure we clean up
+        try {
+			this.init();
+            this.process();
+        } catch (ex) {
+            ms.log(ex);
+			ms.log(ex.stack);
+            this.setError(ex);
+        } finally {
+        }
+    },
+    
+    /**
+      * Attempts to initialize the service instance to allow the process method to do its work
+      */
+    init : function() {
+		this.node = this.getParameter("node");		
+        this.metricType = this.getParameter("metric_type");		
+		this.value = this.getParameter("value");
+		/*
+		var ms = this.getParameter("metric_source");
+		if (ms)
+			this.metric_source = ms;
+		*/
+		
+		ms.log("node is " + this.node);
+		ms.log("metric type is " + this.metricType);
+		ms.log("value is " + this.value);
+		ms.log("metric source is " + this.metric_source);
+    },
+    
+	
+	process: function() {
+		
+		// Create CI Identifier entry 
+		// {"node":this._getNode(), "resource":this._getNode(), "host":this._getNode()};
+		// {node:host,serial_number:this.getParameter("ciSerialNumber"),ci_type:"cmdb_ci_linux_server"};
+		var ciIdentifier = {'node':this.node};
+		this._sendMetric(this.metricType, this.metricType, this.node, this.value, ciIdentifier);
+		
+	},
+	
+	_sendMetric: function(metricName,resource,host,value,ciIdentifier) {		
+		var RawMetric = Packages.com.service_now.metric.model.RawMetric;			
+		var rawMetric = RawMetric(metricName, null, resource, host, null, value, new Date().getTime(), ciIdentifier, this.metric_source, "metricInfoRecord.metricMonitoredObjectType",null);
+		
+		var MetricFactory = Packages.com.service_now.metric.MetricFactory;
+		var metricHandler = MetricFactory.getMetricHandler();
+		metricHandler.handleMetric(rawMetric);
+	},
+    
+
+           
+    type: "MetricProbe"
+});
+]]></script>
+        <sys_class_name>ecc_agent_script_include</sys_class_name>
+        <sys_created_by>aleck.lin</sys_created_by>
+        <sys_created_on>2018-02-10 06:03:51</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_domain>global</sys_domain>
+        <sys_domain_path>/</sys_domain_path>
+        <sys_id>ecbb137713081b40ab3bb8b12244b014</sys_id>
+        <sys_mod_count>8</sys_mod_count>
+        <sys_name>MetricProbe</sys_name>
+        <sys_overrides/>
+        <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
+        <sys_policy/>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
+        <sys_update_name>ecc_agent_script_include_ecbb137713081b40ab3bb8b12244b014</sys_update_name>
+        <sys_updated_by>aleck.lin</sys_updated_by>
+        <sys_updated_on>2018-02-10 17:58:26</sys_updated_on>
+    </ecc_agent_script_include>
+</record_update>

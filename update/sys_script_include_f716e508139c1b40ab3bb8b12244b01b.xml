@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_snc_sn_metric_se.SNBulkMetricGenerator</api_name>
+        <client_callable>false</client_callable>
+        <description>#ITOM SC Bulk Metric Generator for Operational Metrics</description>
+        <name>SNBulkMetricGenerator</name>
+        <script><![CDATA[/*****************************************************
+* ITOM
+* Author: Aleck Lin aleck.lin@servicenow.com
+* Description: This script is part of the Operational Metrics generator
+* designed to integrate with the MID server's REST API for collecting metrics
+* Example usage:
+	var omg = new SNBulkMetricGenerator();
+	omg.setUsername("someUserName");
+	omg.setPassword("somePassword");
+	omg.setHostAndPort("172.31.51.190", "8080");
+	omg.setMIDServer("AWS_MID");
+	omg.setDebug(true);
+	
+	//The following section can be repeated for as many hostCI as needed...
+	omg.setCINode("someComputerName");
+	omg.setMetricTypeValue([{"Metric_wmb_total_Input_messages":7000},{"someMetricName":value}]);
+	omg.setTimestamp(someEpochTime); //if not supplied, will automatically use the current itme	
+	omg.formulatePayload();
+
+	omg.setCINode("someComputerName111");
+	omg.setMetricTypeValue([{"Metric_wmb_total_Input_messages":7777},{"someMetricName":value}]);
+	omg.setTimestamp(someEpochTime); //if not supplied, will automatically use the current itme	
+	omg.formulatePayload();
+
+
+	omg.sendMetricMessage();	 
+****************************************************/
+
+var SNBulkMetricGenerator = Class.create();
+SNBulkMetricGenerator.prototype = {	
+	GENERATOR_NAME: "SCMetricGenerator",
+	
+    initialize: function() {
+		this.username = null;
+		this.password = null;	
+		this.host = null;
+		this.endpoint = null;				
+		this.ciNode = null;
+		this.metricTypeValue = null;		
+		this.MIDServer = null;		
+		this.timestamp = null;
+		this.ciIdObject = null;
+		
+		this.payloadArr = [];
+
+		this.PAYLOAD_CHUNK_SIZE = this.getPayloadLimit(); // has to do with the evition size		
+		
+		this.debugFlag = false;			
+    },
+	
+	getPayloadLimit: function () {
+		var gr = new GlideRecord("sa_metric_config_setting");
+		if (!gr.get("name", "buffer_metric_eviction_size"))
+			return 1440; // the default size OOB
+		else 
+			return parseInt(Math.min(gr.max, 30000)); //30k seems to be a good spot for how many to send per reqest. Tried 43k and failed, so the sweet spot is somewhere between the two...	
+	},
+
+	setUsername: function(username) {
+		this.username = username;
+	},
+	
+	setPassword: function(password) {
+		this.password = password;
+	},
+	
+	//Host is required, if port is not available, asssume 80
+	setHostAndPort: function(host, port) {
+		this.host = host;
+		var path = "/api/mid/sa/metrics";
+		if (gs.nil(port))
+			this.endpoint = "http://"+ host + path;
+		else 
+			this.endpoint = "http://"+ host+ ":"+ port + path;
+	},
+		
+	setCINode: function(node) {
+		this.ciNode = node;
+	},
+
+	setMetricTypeValue: function (metricTypeValueArray) {		
+		this.metricTypeValue = metricTypeValueArray;
+	},
+	
+	setTimestamp: function (timestamp) {
+		this.timestamp = timestamp; 
+	},
+
+	setMIDServer: function(mid) {
+		this.MIDServer = mid;		
+	},	
+
+	//Optional: If CI identifier obj is not set, then a default format will be provided
+	setCIIdentifier: function(obj) {
+		this.ciIdObject = obj;
+	},
+	
+	formulatePayload: function () {
+		this._getPayload();	
+		
+		//Reset some values...
+		this.ciIdObject = null;
+		this.timestamp = null;
+		this.ciNode = null;
+		this.metricTypeValue = null;
+	},
+	
+	sendMetricMessage: function() {
+		var payloadLength = this.payloadArr.length;
+		this.debug("There are " + payloadLength + " payload objects to be sent...");
+		this.debug("The payload chunk size is  set to " + this.PAYLOAD_CHUNK_SIZE);
+		
+		if (payloadLength < this.PAYLOAD_CHUNK_SIZE)
+			return this._sendMetricMessage(this.payloadArr);	
+		else {
+			//Go through the multiples first... 
+			var result = true; //Assume good until something fails...
+			var multiple = Math.floor(payloadLength / this.PAYLOAD_CHUNK_SIZE);
+			for (var i=0; i<multiple; i++) {
+				this.debug("Sending payload from " + this.PAYLOAD_CHUNK_SIZE*i + " to " + this.PAYLOAD_CHUNK_SIZE*(i+1));
+				if(!this._sendMetricMessage(this.payloadArr.slice(this.PAYLOAD_CHUNK_SIZE*i, this.PAYLOAD_CHUNK_SIZE*(i+1))))
+					result = false;
+			}
+			// Then finish up with whatever that is left
+			this.debug("Sending payload from " + this.PAYLOAD_CHUNK_SIZE*multiple + " to " + payloadLength);
+			if (!this._sendMetricMessage(this.payloadArr.slice(this.PAYLOAD_CHUNK_SIZE*multiple, payloadLength)))
+				result = false;
+			
+			return result;
+		}
+	},
+		
+	_sendMetricMessage: function(payloadArr) {	
+		if (payloadArr.length == 0)
+			return;
+		
+		var restMessage = new sn_ws.RESTMessageV2();
+		restMessage.setBasicAuth(this.username, this.password);
+		restMessage.setHttpMethod("post");
+		restMessage.setEndpoint(this.endpoint);
+		restMessage.setRequestHeader("Accept","application/json");
+		restMessage.setRequestHeader('Content-Type','application/json');
+		
+		if (!gs.nil(this.MIDServer)) {
+			restMessage.setMIDServer(this.MIDServer);
+		}		
+		
+		var verification = this._verifyRequiredAttributes();
+		if (verification) {
+			gs.log("There is an error => " + verification);
+			gs.log("Aboring sending metric message...");
+			return false;
+		}
+		
+		this._printRESTMessageInfo(payloadArr);
+		
+		restMessage.setRequestBody(JSON.stringify(payloadArr));						
+//		var response = restMessage.execute();
+		var response = restMessage.executeAsync();
+		response.waitForResponse(60);
+		if (response.getStatusCode() == 200)		
+			return true;
+		
+		if (!this.debugFlag) // if debug flag is not true, don't bother reading the response object; it would only slow down the processing
+			return true;
+		
+		this._printResponseDebugMsg(response);
+				
+		return false;
+	},
+	
+	setDebug: function (flag) {
+		this.debugFlag = flag;
+	},
+		
+	debug: function(msg) {
+		if (this.debugFlag)
+			gs.log(msg);
+	},
+
+	/*******************************************************
+	* Internal functions
+	********************************************************/
+
+	/***** Payload should have the following format ****
+		payload example: 
+		
+		[{
+			"metric_type": "Disk C: % Free Space",
+			"resource": "C:\\",
+			"node": "lnux100",
+			"value": 50,
+			"timestamp": 1473183012000,
+			"ci2metric_id": {
+				"node": "lnux100"
+			},
+			"source": "Splunk"
+		}]
+	******************************************************/
+	
+	_getPayload: function() {	
+		var mvArr = this._getMetricTypeValue();		
+		for (var i=0; i<mvArr.length; i++) {
+			var valueObj = mvArr[i];
+			var obj = this._constructObj(valueObj);
+			this.payloadArr.push(obj);
+			
+			if (this.debugFlag)
+				this._printPayloadInfo(obj);
+		}
+		
+	},
+	
+	_constructObj: function(valueObj) {
+		var descObj = {};		
+		
+		for (var metricType in valueObj) {
+			descObj['metric_type'] = metricType;
+			descObj['node'] = this._getNode();
+			descObj['resource'] = this._getNode();
+			descObj['value'] = valueObj[metricType];
+			descObj['timestamp'] = this._getTimeStamp();
+			descObj['ci_identifier'] = this._getCIIdentifier();
+			descObj['source'] = this.GENERATOR_NAME;						
+		}		
+		
+		return descObj;		
+	},
+
+	_getNode: function() {
+		return this.ciNode;
+	},
+
+	_getMetricTypeValue: function() {
+		return this.metricTypeValue;
+	},	
+	
+	_getTimeStamp: function() {
+		if (this.timestamp)
+			return this.timestamp;
+		
+		var myDate = new Date();
+		this.timestamp = myDate.getTime();
+				
+		return this.timestamp;
+	},
+			
+	_getCIIdentifier: function() {		
+		if (gs.nil(this.ciIdObject))
+			this.ciIdObject = {"node":this._getNode(), "resource":this._getNode(), "host":this._getNode()};
+	
+		return this.ciIdObject;
+	},
+	
+	_printResponseDebugMsg: function(response) {
+		this.debug("\nPRINTING RESPONSE OBJECT...");
+		this.debug("Response code: " + response.getStatusCode());		
+		this.debug("Response body: " + response.getBody());
+		this.debug("Response error code: " + response.getErrorCode());
+		this.debug("Response error msg: " + response.getErrorMessage());	
+	},
+	
+	_printRESTMessageInfo: function(payloadArr) {
+		this.debug("\nPRINTING REST Message INFORMATION...");
+		this.debug("Username is " + this.username);
+		this.debug("Password is " + (gs.nil(this.password) ? "Empty": "Non-empty"));
+		this.debug("Endpoint is " + this.endpoint);						   
+		this.debug("Payload is " + JSON.stringify(payloadArr));
+		if (this.MIDServer)
+			this.debug("MID server is set to " + this.MIDServer);					
+	},
+
+	_printPayloadInfo: function(payloadArr) {
+		if (!this.debugFlag)
+			return;
+				
+		gs.info("Print metric payload info...");
+		JSUtil.logObject(payloadArr);
+	},
+	
+	_verifyRequiredAttributes: function () {
+		if (gs.nil(this.username))
+			return "Username cannot be empty!";
+		
+		if (gs.nil(this.password))
+			return "Password cannot be empty!";
+				
+		if (gs.nil(this.host))
+			return "Host cannot be empty!";
+
+		if (this.payloadArr.length == 0)
+			return "Payload value cannot be empty!";
+		
+		return;
+	},
+	
+    type: 'SNBulkMetricGenerator'
+};]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>aleck.lin</sys_created_by>
+        <sys_created_on>2018-02-10 16:08:22</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_id>f716e508139c1b40ab3bb8b12244b01b</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>SNBulkMetricGenerator</sys_name>
+        <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
+        <sys_policy>read</sys_policy>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
+        <sys_update_name>sys_script_include_f716e508139c1b40ab3bb8b12244b01b</sys_update_name>
+        <sys_updated_by>aleck.lin</sys_updated_by>
+        <sys_updated_on>2018-02-10 16:08:22</sys_updated_on>
+    </sys_script_include>
+</record_update>
