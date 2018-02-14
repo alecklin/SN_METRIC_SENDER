@@ -7,7 +7,24 @@
         <client_callable>false</client_callable>
         <description>Creating an ECC queue ouptut entry for MID server to execute a probe </description>
         <name>GenericProbe</name>
-        <script><![CDATA[var GenericProbe = Class.create();
+        <script><![CDATA[/* Author: Aleck.Lin@ServiceNow.com
+*  Description: This class provides the general ability to launch a task for the MID server to process
+*  Example: 
+
+	var p = new GenericProbe("AWS_MID_2");
+	p.setTopic("JavascriptProbe");
+	p.setMIDServer("AWS_MID_2");
+	p.setName("MetricProbe");
+	p.setSource("127.0.0.1");
+	p.addParameter("node", "AS400");
+	p.addParameter("metric_type", "temperature");
+	p.addParameter("metric_value", "123");
+	p.setDebug(false);
+	p.create();
+*/
+
+
+var GenericProbe = Class.create();
 
 GenericProbe.prototype = {
 	initialize : function() {
@@ -31,6 +48,10 @@ GenericProbe.prototype = {
 
 	setSource : function(s) {
 		this.source = s;
+	},
+	
+	setDebug: function(value) {
+		this.addParameter("debug", value);
 	},
 
 	addParameter : function(name, value) {
@@ -78,7 +99,7 @@ GenericProbe.prototype = {
         <sys_created_on>2018-02-10 16:58:37</sys_created_on>
         <sys_customer_update>false</sys_customer_update>
         <sys_id>b941310013dc1b40ab3bb8b12244b08a</sys_id>
-        <sys_mod_count>13</sys_mod_count>
+        <sys_mod_count>15</sys_mod_count>
         <sys_name>GenericProbe</sys_name>
         <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
         <sys_policy>read</sys_policy>
@@ -86,6 +107,6 @@ GenericProbe.prototype = {
         <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
         <sys_update_name>sys_script_include_b941310013dc1b40ab3bb8b12244b08a</sys_update_name>
         <sys_updated_by>aleck.lin</sys_updated_by>
-        <sys_updated_on>2018-02-10 17:29:13</sys_updated_on>
+        <sys_updated_on>2018-02-13 18:02:33</sys_updated_on>
     </sys_script_include>
 </record_update>

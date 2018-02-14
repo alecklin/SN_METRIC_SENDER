@@ -6,8 +6,20 @@
         <name>MetricProbe</name>
         <script><![CDATA[/* 
 *  Author: Aleck.Lin@ServiceNow.com
-*  Description: This is meant to be used as a JavaScript probe that can send Metrics directly from the MID server without 
-*				needing the REST endpoint receiver on the MID server to be set up. 	
+*  Description: This is meant to be used as a JavaScript probe that can send Metrics directly from the MID server without needing the REST endpoint receiver on the MID server to be set up. 	
+
+*  Example Usage 
+
+	var p = new GenericProbe("AWS_MID_2");
+	p.setTopic("JavascriptProbe");
+	p.setMIDServer("AWS_MID_2");
+	p.setName("MetricProbe");
+	p.setSource("127.0.0.1");
+	p.addParameter("node", "AS400");
+	p.addParameter("metric_type", "temperature");
+	p.addParameter("metric_value", "123");
+	p.setDebug(false);
+	p.create();
 */
 
 var MetricProbe = Class.create();
@@ -15,17 +27,22 @@ var MetricProbe = Class.create();
 MetricProbe.prototype = Object.extendsObject(AProbe, {
 
     initialize : function(probe) {
-		this.metric_source = "SN Metric Sender";
-        this.probe = probe;
-        this.output = "";
-        this.createOutputRecord = true;
+		this.probe = probe;
+		this.METRIC_SOURCE = "metric_source";
+		this.DEBUG = "debug";
+		this.NODE = "node";
+		this.METRIC_TYPE = "metric_type";
+		this.METRIC_VALUE = "metric_value"; 
+		this.EPOCH_TIME = "epoch_time";
+		this.CI_IDENTIFIER = "ci_identifier";
+		
+		this.METRIC_SOURCE_DEFAULT = "SN Metric Sender";	
     },
     
     /**
      * Runs the probe instance
      */
-    run : function() {
-        
+    run : function() {        
         // If something fails in the probe code and an unhandled exception is thrown, make sure we clean up
         try {
 			this.init();
@@ -42,42 +59,96 @@ MetricProbe.prototype = Object.extendsObject(AProbe, {
       * Attempts to initialize the service instance to allow the process method to do its work
       */
     init : function() {
-		this.node = this.getParameter("node");		
-        this.metricType = this.getParameter("metric_type");		
-		this.value = this.getParameter("value");
-		/*
-		var ms = this.getParameter("metric_source");
-		if (ms)
-			this.metric_source = ms;
-		*/
+		this.debugFlag = JSUtil.toBoolean(this.getParameter(this.DEBUG)) || JSUtil.toBoolean(this.getParameter("debug_flag"));
 		
-		ms.log("node is " + this.node);
-		ms.log("metric type is " + this.metricType);
-		ms.log("value is " + this.value);
-		ms.log("metric source is " + this.metric_source);
+		this.node = this.getParameter(this.NODE);		
+        this.metricType = this.getParameter(this.METRIC_TYPE);		
+		this.metricValue = this.getParameter(this.METRIC_VALUE);
+		
+		this.metricSource = this.getParameter(this.METRIC_SOURCE);
+		if (JSUtil.nil(this.metricSource))
+			this.metricSource = this.METRIC_SOURCE_DEFAULT;
+
+		var ciIdentifier = this.getParameter(this.CI_IDENTIFIER);
+		if (JSUtil.nil(ciIdentifier)) {
+			// Create CI Identifier entry 
+			// {"node":this._getNode(), "resource":this._getNode(), "host":this._getNode()};
+			// {node:host,serial_number:this.getParameter("ciSerialNumber"),ci_type:"cmdb_ci_linux_server"};
+			var ciType = this.getParameter("ci_type");
+			if (JSUtil.nil(ciType))
+				this.ciIdentifier = {'node':this.node};
+			else 
+				this.ciIdentifier = {'node':this.node, 'ci_type':ciType};
+			
+		} else {
+			this.ciIdentifier = new JSON().decode(ciIdentifier);
+		}
+		
+		this.epochTime = this.getParameter(this.EPOCH_TIME);		
+		if (JSUtil.nil(this.epochTime))
+			this.epochTime = new Date().getTime();				
     },
-    
-	
+    	
 	process: function() {
-		
-		// Create CI Identifier entry 
-		// {"node":this._getNode(), "resource":this._getNode(), "host":this._getNode()};
-		// {node:host,serial_number:this.getParameter("ciSerialNumber"),ci_type:"cmdb_ci_linux_server"};
-		var ciIdentifier = {'node':this.node};
-		this._sendMetric(this.metricType, this.metricType, this.node, this.value, ciIdentifier);
+		// See if we have all the information, if not, skip it! 
+		if (this._shouldSkip()) {
+			var msg = "METRIC PROBE: Skipping metric sending because of missing info!";
+			ms.log(msg);
+			this.createOutputResult(msg);
+			return;
+		}
+	
+		this._sendMetric(this.metricSource, this.metricType, this.metricType, this.node, this.metricValue, this.ciIdentifier, this.epochTime);
 		
 	},
 	
-	_sendMetric: function(metricName,resource,host,value,ciIdentifier) {		
+	_sendMetric: function(metricSource, metricName, resource, host, value, ciIdentifier, epochTime) {
 		var RawMetric = Packages.com.service_now.metric.model.RawMetric;			
-		var rawMetric = RawMetric(metricName, null, resource, host, null, value, new Date().getTime(), ciIdentifier, this.metric_source, "metricInfoRecord.metricMonitoredObjectType",null);
+		var objType = "metricInfoRecord.metricMonitoredObjectType";
+		var rawMetric = RawMetric(metricName, null, resource, host, null, value, epochTime, ciIdentifier, metricSource, objType, null);
 		
 		var MetricFactory = Packages.com.service_now.metric.MetricFactory;
 		var metricHandler = MetricFactory.getMetricHandler();
 		metricHandler.handleMetric(rawMetric);
 	},
     
+	
+	_shouldSkip: function() {		
+		this.debug(this.NODE + " is " + this.node);
+		this.debug(this.METRIC_TYPE + " is " + this.metricType);
+		this.debug(this.METRIC_VALUE + " is " + this.metricValue);
+		this.debug(this.METRIC_SOURCE + " is " + this.metricSource);
+		this.debug(this.CI_IDENTIFIER + " is " + this.ciIdentifier);
+		this.debug(this.EPOCH_TIME + " is " + this.epochTime);
+		
+		if (JSUtil.nil(this.node))
+			return true;
 
+		if (JSUtil.nil(this.metricType))
+			return true;
+
+		if (JSUtil.nil(this.metricValue))
+			return true;
+
+		if (JSUtil.nil(this.metricSource))
+			return true;
+
+		if (JSUtil.nil(this.ciIdentifier))
+			return true;
+	
+		if (JSUtil.nil(this.epochTime))
+			return true;
+	
+		return false; 
+	
+	},
+	
+
+	debug: function(msg) {
+		if (this.debugFlag)
+			ms.log("METRIC PROBE: " + msg);
+	},
+	
            
     type: "MetricProbe"
 });
@@ -89,7 +160,7 @@ MetricProbe.prototype = Object.extendsObject(AProbe, {
         <sys_domain>global</sys_domain>
         <sys_domain_path>/</sys_domain_path>
         <sys_id>ecbb137713081b40ab3bb8b12244b014</sys_id>
-        <sys_mod_count>8</sys_mod_count>
+        <sys_mod_count>36</sys_mod_count>
         <sys_name>MetricProbe</sys_name>
         <sys_overrides/>
         <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
@@ -98,6 +169,6 @@ MetricProbe.prototype = Object.extendsObject(AProbe, {
         <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
         <sys_update_name>ecc_agent_script_include_ecbb137713081b40ab3bb8b12244b014</sys_update_name>
         <sys_updated_by>aleck.lin</sys_updated_by>
-        <sys_updated_on>2018-02-10 17:58:26</sys_updated_on>
+        <sys_updated_on>2018-02-13 20:28:52</sys_updated_on>
     </ecc_agent_script_include>
 </record_update>
