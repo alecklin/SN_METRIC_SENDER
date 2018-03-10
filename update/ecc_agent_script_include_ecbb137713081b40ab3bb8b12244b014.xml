@@ -10,9 +10,9 @@
 
 *  Example Usage 
 
-	var p = new GenericProbe("AWS_MID_2");
+	var p = new x_snc_sn_metric_se.GenericProbe();
 	p.setTopic("JavascriptProbe");
-	p.setMIDServer("AWS_MID_2");
+	p.setMIDServer("AWS_MID");
 	p.setName("MetricProbe");
 	p.setSource("127.0.0.1");
 	p.addParameter("node", "AS400");
@@ -160,7 +160,7 @@ MetricProbe.prototype = Object.extendsObject(AProbe, {
         <sys_domain>global</sys_domain>
         <sys_domain_path>/</sys_domain_path>
         <sys_id>ecbb137713081b40ab3bb8b12244b014</sys_id>
-        <sys_mod_count>36</sys_mod_count>
+        <sys_mod_count>39</sys_mod_count>
         <sys_name>MetricProbe</sys_name>
         <sys_overrides/>
         <sys_package display_value="SN Metric Sender" source="x_snc_sn_metric_se">64aa97f313081b40ab3bb8b12244b05a</sys_package>
@@ -169,6 +169,6 @@ MetricProbe.prototype = Object.extendsObject(AProbe, {
         <sys_scope display_value="SN Metric Sender">64aa97f313081b40ab3bb8b12244b05a</sys_scope>
         <sys_update_name>ecc_agent_script_include_ecbb137713081b40ab3bb8b12244b014</sys_update_name>
         <sys_updated_by>aleck.lin</sys_updated_by>
-        <sys_updated_on>2018-02-13 20:28:52</sys_updated_on>
+        <sys_updated_on>2018-03-10 17:38:33</sys_updated_on>
     </ecc_agent_script_include>
 </record_update>
